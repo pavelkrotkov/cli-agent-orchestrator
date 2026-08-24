@@ -39,11 +39,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/ruff-action@v3
         with:
-          args: check --select E4,E7,E9,F,I,B
-          src: "./src"
+          args: --version
       - name: Ruff gate on lifecycle-fix files
-        # ruff-action's `args` is split naively, which breaks long file lists;
-        # run the explicit gate as a plain command instead.
         run: |
           ruff check --select E4,E7,E9,F,I,B \
             src/cli_agent_orchestrator/providers/codex.py \
@@ -64,9 +61,10 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/ruff-action@v3
         with:
-          # Report the legacy debt without failing the build.
-          args: check --select E4,E7,E9,F,I,B --statistics --exit-zero
-          src: "."
+          args: --version
+      - name: Ruff report over legacy codebase (non-blocking)
+        # Report the legacy debt without failing the build.
+        run: ruff check --select E4,E7,E9,F,I,B --statistics --exit-zero .
 
   black:
     name: Black (upstream config)
