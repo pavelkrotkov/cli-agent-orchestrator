@@ -64,7 +64,11 @@ jobs:
           args: --version
       - name: Ruff report over legacy codebase (non-blocking)
         # Report the legacy debt without failing the build.
-        run: ruff check --select E4,E7,E9,F,I,B --statistics --exit-zero .
+        # Clear RUFF_OUTPUT_FORMAT (set by ruff-action) — it conflicts with
+        # the statistics serializer.
+        run: |
+          unset RUFF_OUTPUT_FORMAT
+          ruff check --select E4,E7,E9,F,I,B --statistics --exit-zero .
 
   black:
     name: Black (upstream config)
