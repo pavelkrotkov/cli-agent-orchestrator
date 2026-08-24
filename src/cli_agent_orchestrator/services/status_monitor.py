@@ -214,9 +214,11 @@ class StatusMonitor:
                 return
 
             self._last_status[terminal_id] = detected
-            if detected == TerminalStatus.PROCESSING:
-                self._allow_processing_revert[terminal_id] = False
-            elif detected in _STICKY_READY_STATUSES and last not in _STICKY_READY_STATUSES:
+            if (
+                detected == TerminalStatus.PROCESSING
+                or detected in _STICKY_READY_STATUSES
+                and last not in _STICKY_READY_STATUSES
+            ):
                 self._allow_processing_revert[terminal_id] = False
 
         # Publish outside the lock — subscribers must never be able to

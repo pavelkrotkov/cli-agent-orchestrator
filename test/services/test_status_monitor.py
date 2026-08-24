@@ -43,9 +43,12 @@ class TestGetStatusTmux:
         sm = StatusMonitor()
         sm._last_status["t1"] = TerminalStatus.PROCESSING
         sm._buffers["t1"] = "raw fifo output"
-        with patch.object(
-            sm, "_detect_from_live_pane", return_value=TerminalStatus.COMPLETED
-        ) as live_detect, patch.object(sm, "_detect_status") as raw_detect:
+        with (
+            patch.object(
+                sm, "_detect_from_live_pane", return_value=TerminalStatus.COMPLETED
+            ) as live_detect,
+            patch.object(sm, "_detect_status") as raw_detect,
+        ):
             assert sm.get_status("t1") == TerminalStatus.COMPLETED
 
         live_detect.assert_called_once_with("t1")

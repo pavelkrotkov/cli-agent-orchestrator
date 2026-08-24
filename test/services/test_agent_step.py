@@ -14,7 +14,10 @@ import pytest
 from cli_agent_orchestrator.models.kiro_engine import KiroEngine
 from cli_agent_orchestrator.models.terminal import AgentStepResult, TerminalStatus
 from cli_agent_orchestrator.providers.kiro_capabilities import KiroPhase0KASError
-from cli_agent_orchestrator.services.agent_step import StepExecutionError, run_agent_step
+from cli_agent_orchestrator.services.agent_step import (
+    StepExecutionError,
+    run_agent_step,
+)
 from cli_agent_orchestrator.services.terminal_service import OutputMode
 
 _MODULE = "cli_agent_orchestrator.services.agent_step"
@@ -444,7 +447,15 @@ class TestFailureRaises:
         create, send, delete, get_output, exit_cli, get_wd, wait, status = _patch_terminal_layer(
             ready=False,  # readiness times out before any input
         )
-        with create, send as m_send, delete as m_delete, get_output, exit_cli as m_exit, wait, status:
+        with (
+            create,
+            send as m_send,
+            delete as m_delete,
+            get_output,
+            exit_cli as m_exit,
+            wait,
+            status,
+        ):
             with pytest.raises(StepExecutionError, match="ready status") as exc_info:
                 asyncio.run(run_agent_step("kiro_cli", "dev", "x"))
         m_exit.assert_called_once_with("abc12345")
@@ -565,19 +576,22 @@ class TestIdleCompletionSignal:
         from cli_agent_orchestrator.services.agent_step import _wait_for_completion
 
         async def _run():
-            statuses = iter([
-                TerminalStatus.PROCESSING,
-                TerminalStatus.IDLE,
-                TerminalStatus.IDLE,
-                TerminalStatus.IDLE,
-            ])
-            with patch(
-                f"{_MODULE}.status_monitor.get_status",
-                side_effect=lambda _terminal: next(statuses, TerminalStatus.IDLE),
-            ), patch(f"{_MODULE}._COMPLETION_POLL_INTERVAL", 0):
-                await _wait_for_completion(
-                    "codex-term", timeout=0.05, accept_idle=False
-                )
+            statuses = iter(
+                [
+                    TerminalStatus.PROCESSING,
+                    TerminalStatus.IDLE,
+                    TerminalStatus.IDLE,
+                    TerminalStatus.IDLE,
+                ]
+            )
+            with (
+                patch(
+                    f"{_MODULE}.status_monitor.get_status",
+                    side_effect=lambda _terminal: next(statuses, TerminalStatus.IDLE),
+                ),
+                patch(f"{_MODULE}._COMPLETION_POLL_INTERVAL", 0),
+            ):
+                await _wait_for_completion("codex-term", timeout=0.05, accept_idle=False)
 
         with pytest.raises(StepExecutionError, match="did not complete"):
             asyncio.run(_run())

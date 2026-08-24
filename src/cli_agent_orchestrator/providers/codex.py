@@ -82,9 +82,7 @@ TUI_PROGRESS_PATTERN = r"•[^\n]*\((?:(?:\d+h\s+)?\d+m\s+)?\d+s\s*•\s*esc to 
 # Codex completion divider shown after a long response scrolls the original
 # prompt/assistant markers out of the rendered viewport. Codex 0.146 may emit
 # either the decorated "Worked for …" form or a bare em-dash divider.
-CODEX_COMPLETION_PATTERN = (
-    r"^(?:─+\s*Worked for (?:(?:\d+h\s+)?\d+m\s+)?\d+s\s*─+|─{10,})$"
-)
+CODEX_COMPLETION_PATTERN = r"^(?:─+\s*Worked for (?:(?:\d+h\s+)?\d+m\s+)?\d+s\s*─+|─{10,})$"
 CODEX_JSON_RESPONSE_PATTERN = r'\{\s*"claims"\s*:\s*\['
 # A long evidence packet scrolls its own opening brace out of the rendered
 # viewport, so the opener above can be invisible by the time the model
@@ -105,6 +103,7 @@ def _has_completed_packet(text: str) -> bool:
     if not re.search(CODEX_JSON_TAIL_PATTERN, text, re.DOTALL):
         return False
     return re.search(CODEX_REAL_STANCE_PATTERN, text) is not None
+
 
 # Workspace trust/approval prompt shown when Codex opens a new directory.
 # Two known variants:
@@ -428,7 +427,9 @@ class CodexProvider(BaseProvider):
             try:
                 profile = load_agent_profile(self._agent_profile)
             except Exception as e:
-                raise ProviderError(f"Failed to load agent profile '{self._agent_profile}': {e}")
+                raise ProviderError(
+                    f"Failed to load agent profile '{self._agent_profile}': {e}"
+                ) from e
 
         if profile and profile.codexProfile and not yolo:
             command_parts = ["codex", "--profile", profile.codexProfile]
@@ -638,7 +639,9 @@ class CodexProvider(BaseProvider):
             clean_output = strip_terminal_escapes(re.sub(ANSI_CODE_PATTERN, "", output))
 
             if not trust_dismissed and re.search(TRUST_PROMPT_PATTERN, clean_output):
-                from cli_agent_orchestrator.services.status_monitor import status_monitor
+                from cli_agent_orchestrator.services.status_monitor import (
+                    status_monitor,
+                )
 
                 logger.info("Codex workspace trust prompt (v1) detected, auto-accepting")
                 status_monitor.notify_input_sent(self.terminal_id)
@@ -654,7 +657,9 @@ class CodexProvider(BaseProvider):
                 and re.search(TRUST_PROMPT_PATTERN_V2, bottom_region)
                 and re.search(TRUST_PROMPT_FOOTER, bottom_region)
             ):
-                from cli_agent_orchestrator.services.status_monitor import status_monitor
+                from cli_agent_orchestrator.services.status_monitor import (
+                    status_monitor,
+                )
 
                 logger.info("Codex workspace trust prompt (v2) detected, auto-accepting")
                 status_monitor.notify_input_sent(self.terminal_id)
@@ -664,7 +669,9 @@ class CodexProvider(BaseProvider):
                 continue
 
             if not update_dismissed and _has_update_dialog_in_bottom(clean_output):
-                from cli_agent_orchestrator.services.status_monitor import status_monitor
+                from cli_agent_orchestrator.services.status_monitor import (
+                    status_monitor,
+                )
 
                 logger.info(
                     "Codex update-available dialog detected, selecting " "'Skip until next version'"
@@ -910,8 +917,9 @@ class CodexProvider(BaseProvider):
                 # echoed prompt contains `{"claims":[` and the alternation
                 # "supports|qualifies|contradicts", so matching the opener
                 # alone reports COMPLETED before the model has replied.
-                if (re.search(CODEX_JSON_RESPONSE_PATTERN, after_user, re.DOTALL)
-                        and re.search(CODEX_REAL_STANCE_PATTERN, after_user)):
+                if re.search(CODEX_JSON_RESPONSE_PATTERN, after_user, re.DOTALL) and re.search(
+                    CODEX_REAL_STANCE_PATTERN, after_user
+                ):
                     return TerminalStatus.COMPLETED
                 if _has_completed_packet(after_user):
                     return TerminalStatus.COMPLETED
@@ -953,9 +961,7 @@ class CodexProvider(BaseProvider):
             return TerminalStatus.UNKNOWN
         rendered = "\n".join(rows)
         status = self.get_status(rendered)
-        has_completion_divider = re.search(
-            CODEX_COMPLETION_PATTERN, rendered, re.MULTILINE
-        )
+        has_completion_divider = re.search(CODEX_COMPLETION_PATTERN, rendered, re.MULTILINE)
         has_live_progress = re.search(TUI_PROGRESS_PATTERN, rendered, re.MULTILINE)
         has_blocking_state = re.search(
             rf"(?:{WAITING_PROMPT_PATTERN}|{ERROR_PATTERN})", rendered, re.MULTILINE
