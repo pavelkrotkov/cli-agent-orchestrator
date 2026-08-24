@@ -358,6 +358,11 @@ class TmuxClient:
                 "PATH",
                 "SHELL",
                 "USER",
+                # Provider-specific config homes must survive the tmux
+                # session boundary. Without this, Codex falls back to the
+                # operator's global ~/.codex/config.toml and may start
+                # unrelated MCP servers in an isolated worker.
+                "CODEX_HOME",
                 "LANG",
                 "LC_ALL",
                 "LC_CTYPE",
@@ -801,6 +806,7 @@ class TmuxClient:
         tail_lines: Optional[int] = None,
         strip_escapes: bool = False,
         full_history: bool = False,
+        viewport_only: bool = False,
     ) -> str:
         """Get window history.
 
@@ -810,6 +816,11 @@ class TmuxClient:
             tail_lines: Number of lines to capture from end (default: TMUX_HISTORY_LINES)
             strip_escapes: If True, capture plain text without ANSI escape sequences
             full_history: If True, capture entire scrollback buffer (overrides tail_lines)
+            viewport_only: If True, capture ONLY the visible pane (no -S flag), so
+                no scrollback is included. Screen-based detectors calibrated on a
+                composited current screen must use this — a completion marker from
+                a previous turn in scrollback would otherwise latch a false
+                COMPLETED.
 
         Raises:
             ValueError: The session or window is genuinely gone.
@@ -835,6 +846,9 @@ class TmuxClient:
             if full_history:
                 # "-S -" captures from the start of the scrollback buffer
                 flags = ["-p", "-S", "-"]
+            elif viewport_only:
+                # No -S flag: capture only the currently visible pane.
+                flags = ["-p"]
             else:
                 lines = tail_lines if tail_lines is not None else TMUX_HISTORY_LINES
                 flags = ["-p", "-S", f"-{lines}"]

@@ -193,6 +193,7 @@ class TerminalBackend(ABC):
         tail_lines: Optional[int] = None,
         strip_escapes: bool = False,
         full_history: bool = False,
+        viewport_only: bool = False,
     ) -> str:
         """Get terminal output/history from a window.
 
@@ -202,6 +203,7 @@ class TerminalBackend(ABC):
             tail_lines: Number of lines from the end (None = backend default)
             strip_escapes: If True, strip ANSI escape sequences
             full_history: If True, capture entire scrollback
+            viewport_only: If True, capture only the visible pane (no scrollback)
 
         Returns:
             Terminal output as a string

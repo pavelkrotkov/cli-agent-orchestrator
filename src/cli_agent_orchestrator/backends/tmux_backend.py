@@ -111,6 +111,7 @@ class TmuxBackend(TerminalBackend):
         tail_lines: Optional[int] = None,
         strip_escapes: bool = False,
         full_history: bool = False,
+        viewport_only: bool = False,
     ) -> str:
         return self._client.get_history(
             session_name,
@@ -118,6 +119,7 @@ class TmuxBackend(TerminalBackend):
             tail_lines=tail_lines,
             strip_escapes=strip_escapes,
             full_history=full_history,
+            viewport_only=viewport_only,
         )
 
     def get_pane_working_directory(self, session_name: str, window_name: str) -> Optional[str]:

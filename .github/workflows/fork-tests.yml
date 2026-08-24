@@ -1,0 +1,60 @@
+name: Tests (targeted suites)
+
+# Runs the unit suites touched by this fork's fixes. The full upstream matrix
+# (provider e2e, AG-UI, etc.) stays in ci.yml on upstream's own runners; these
+# are the fast, deterministic suites that gate the lifecycle changes.
+
+on:
+  push:
+    branches: [ main, local/v2.4.1-fifo-fix ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Run targeted test suites
+        run: >
+          uv run pytest -q --no-cov
+          test/providers/test_codex_provider_unit.py
+          test/services/test_agent_step.py
+          test/services/test_status_monitor.py
+          test/clients/test_tmux_client.py
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      # Audit the PROJECT environment from uv.lock, not the ephemeral uvx tool
+      # env (pip-audit with no target audits the environment it runs in).
+      # --no-emit-package excludes the project itself (an editable requirement
+      # that pip-audit cannot hash-install).
+      - run: uv export --frozen --no-dev --no-emit-project --format requirements-txt --output-file /tmp/requirements.txt
+      - run: uvx pip-audit -r /tmp/requirements.txt --no-deps

@@ -1,7 +1,7 @@
 """Tests for TmuxClient methods (mocked libtmux — no real tmux required)."""
 
 import os
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -123,6 +123,7 @@ class TestCreateSessionEnvironmentFiltering:
                 "HOME": "/home/user",
                 "PATH": "/usr/bin" * 500,
                 "SHELL": "/bin/bash",
+                "CODEX_HOME": "/home/user/.codex-research-readonly",
                 "LANG": "en_US.UTF-8",
                 "LC_ALL": "en_US.UTF-8",
                 "LC_CTYPE": "UTF-8",
@@ -132,6 +133,7 @@ class TestCreateSessionEnvironmentFiltering:
         assert env["PATH"] == "/usr/bin" * 500  # large PATH not dropped
         assert env["LC_ALL"] == "en_US.UTF-8"
         assert env["LC_CTYPE"] == "UTF-8"
+        assert env["CODEX_HOME"] == "/home/user/.codex-research-readonly"
 
     def test_blocked_prefixes_filtered(self, tmux, tmp_path):
         env = self._get_passed_environment(

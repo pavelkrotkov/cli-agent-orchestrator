@@ -538,6 +538,7 @@ class HerdrBackend(TerminalBackend):
         tail_lines: Optional[int] = None,
         strip_escapes: bool = False,
         full_history: bool = False,
+        viewport_only: bool = False,
     ) -> str:
         """Read pane output via herdr pane read."""
         pane_id = self._resolve_pane_id_from_window(session_name, window_name)
@@ -545,6 +546,10 @@ class HerdrBackend(TerminalBackend):
         args = ["pane", "read", pane_id]
         if full_history:
             pass  # no flags — returns full scrollback
+        elif viewport_only:
+            # Best effort: herdr has no strict viewport mode; take a small
+            # recent window as an approximation of the visible screen.
+            args.extend(["--source", "recent", "--lines", "50"])
         elif tail_lines:
             args.extend(["--source", "recent", "--lines", str(tail_lines)])
         else:

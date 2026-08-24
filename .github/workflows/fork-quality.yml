@@ -1,0 +1,101 @@
+name: Quality (ruff + black)
+
+# Scoped quality gate for this fork: hard-gates ONLY the files carrying the
+# research-fabric lifecycle fixes; the rest of the upstream codebase predates
+# ruff adoption (~900 legacy findings) and is reported but not enforced.
+# black/isort stay as upstream configured them (line-length 100).
+
+on:
+  push:
+    branches: [ main, local/v2.4.1-fifo-fix ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GATED_FILES: >-
+    src/cli_agent_orchestrator/providers/codex.py
+    src/cli_agent_orchestrator/services/agent_step.py
+    src/cli_agent_orchestrator/services/status_monitor.py
+    src/cli_agent_orchestrator/clients/tmux.py
+    test/providers/test_codex_provider_unit.py
+    test/services/test_agent_step.py
+    test/services/test_status_monitor.py
+    test/clients/test_tmux_client.py
+
+jobs:
+  ruff-gated:
+    name: Ruff (gated files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: --version
+      - name: Ruff gate on lifecycle-fix files
+        run: |
+          ruff check --select E4,E7,E9,F,I,B \
+            src/cli_agent_orchestrator/providers/codex.py \
+            src/cli_agent_orchestrator/services/agent_step.py \
+            src/cli_agent_orchestrator/services/status_monitor.py \
+            src/cli_agent_orchestrator/clients/tmux.py \
+            test/providers/test_codex_provider_unit.py \
+            test/services/test_agent_step.py \
+            test/services/test_status_monitor.py \
+            test/clients/test_tmux_client.py
+
+  ruff-legacy-report:
+    name: Ruff (legacy codebase, report-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: --version
+      - name: Ruff report over legacy codebase (non-blocking)
+        # Report the legacy debt without failing the build.
+        # Clear RUFF_OUTPUT_FORMAT (set by ruff-action) — it conflicts with
+        # the statistics serializer.
+        run: |
+          unset RUFF_OUTPUT_FORMAT
+          ruff check --select E4,E7,E9,F,I,B --statistics --exit-zero .
+
+  black:
+    name: Black (upstream config)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      # Same locked black as upstream ci.yml, so both CIs agree.
+      - run: uv run black --check src/ test/
+  actionlint:
+    name: Actions Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: raven-actions/actionlint@v2
+        with:
+          # Upstream workflows (release.yml etc.) carry pre-existing shellcheck
+          # nits; only fail on actionlint's own findings.
+          shellcheck: false
+          pyflakes: false
