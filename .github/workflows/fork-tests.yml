@@ -54,5 +54,7 @@ jobs:
       - run: uv sync --frozen
       # Audit the PROJECT environment from uv.lock, not the ephemeral uvx tool
       # env (pip-audit with no target audits the environment it runs in).
-      - run: uv export --frozen --no-dev --format requirements-txt --output-file /tmp/requirements.txt
-      - run: uvx pip-audit -r /tmp/requirements.txt
+      # --no-emit-package excludes the project itself (an editable requirement
+      # that pip-audit cannot hash-install).
+      - run: uv export --frozen --no-dev --no-emit-project --format requirements-txt --output-file /tmp/requirements.txt
+      - run: uvx pip-audit -r /tmp/requirements.txt --no-deps
