@@ -130,6 +130,7 @@ class TestTmuxBackendDelegation:
             tail_lines=50,
             strip_escapes=False,
             full_history=False,
+            viewport_only=False,
         )
         assert result == "output text"
 
