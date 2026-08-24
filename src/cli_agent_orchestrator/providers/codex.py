@@ -79,6 +79,32 @@ TUI_FOOTER_PATTERN = r"(?:\?\s+for shortcuts|context left|\d+%\s+left|·\s+[~/])
 # Must be checked before COMPLETED to avoid false positives (the • matches
 # ASSISTANT_PREFIX_PATTERN and the TUI footer › matches idle prompt).
 TUI_PROGRESS_PATTERN = r"•[^\n]*\((?:(?:\d+h\s+)?\d+m\s+)?\d+s\s*•\s*esc to interrupt\)"
+# Codex completion divider shown after a long response scrolls the original
+# prompt/assistant markers out of the rendered viewport. Codex 0.146 may emit
+# either the decorated "Worked for …" form or a bare em-dash divider.
+CODEX_COMPLETION_PATTERN = (
+    r"^(?:─+\s*Worked for (?:(?:\d+h\s+)?\d+m\s+)?\d+s\s*─+|─{10,})$"
+)
+CODEX_JSON_RESPONSE_PATTERN = r'\{\s*"claims"\s*:\s*\['
+# A long evidence packet scrolls its own opening brace out of the rendered
+# viewport, so the opener above can be invisible by the time the model
+# finishes. The packet's closing shape stays on screen, so detect that too.
+#
+# CAUTION: the *prompt* also ends in `"coverage_notes":[]}` because it shows the
+# requested schema. Matching the closing shape alone therefore fires on the
+# echoed prompt and reports COMPLETED before the model has done anything. Only
+# treat it as a finished response when a concrete stance value is also present:
+# the schema echo carries the alternation `"supports|qualifies|contradicts"`,
+# whereas a real claim carries exactly one of them.
+CODEX_JSON_TAIL_PATTERN = r'"coverage_notes"\s*:\s*\[[^\]]*\]\s*\}'
+CODEX_REAL_STANCE_PATTERN = r'"stance"\s*:\s*"(?:supports|qualifies|contradicts)"'
+
+
+def _has_completed_packet(text: str) -> bool:
+    """True when ``text`` holds a finished evidence packet, not a schema echo."""
+    if not re.search(CODEX_JSON_TAIL_PATTERN, text, re.DOTALL):
+        return False
+    return re.search(CODEX_REAL_STANCE_PATTERN, text) is not None
 
 # Workspace trust/approval prompt shown when Codex opens a new directory.
 # Two known variants:
@@ -879,7 +905,17 @@ class CodexProvider(BaseProvider):
             # tool-call filter, "• Called <server>.<tool>(...)" emitted before
             # the model has actually replied would trip COMPLETED prematurely.
             if last_user is not None:
-                if _find_assistant_marker(clean_output[last_user.start() :]) is not None:
+                after_user = clean_output[last_user.start() :]
+                # Require a concrete stance, not just the schema shape: the
+                # echoed prompt contains `{"claims":[` and the alternation
+                # "supports|qualifies|contradicts", so matching the opener
+                # alone reports COMPLETED before the model has replied.
+                if (re.search(CODEX_JSON_RESPONSE_PATTERN, after_user, re.DOTALL)
+                        and re.search(CODEX_REAL_STANCE_PATTERN, after_user)):
+                    return TerminalStatus.COMPLETED
+                if _has_completed_packet(after_user):
+                    return TerminalStatus.COMPLETED
+                if _find_assistant_marker(after_user) is not None:
                     return TerminalStatus.COMPLETED
 
                 return TerminalStatus.IDLE
@@ -893,6 +929,8 @@ class CodexProvider(BaseProvider):
             #   e2e tests would time out.
             # Search above the TUI footer cutoff so the › suggestion-hint and
             # status-bar lines aren't confused with a model reply.
+            if _has_completed_packet(clean_output[:cutoff_pos]):
+                return TerminalStatus.COMPLETED
             if _find_assistant_marker(clean_output[:cutoff_pos]) is not None:
                 return TerminalStatus.COMPLETED
             return TerminalStatus.IDLE
@@ -913,7 +951,23 @@ class CodexProvider(BaseProvider):
         rows = [line.rstrip() for line in screen_lines if line.strip()]
         if not rows:
             return TerminalStatus.UNKNOWN
-        return self.get_status("\n".join(rows))
+        rendered = "\n".join(rows)
+        status = self.get_status(rendered)
+        has_completion_divider = re.search(
+            CODEX_COMPLETION_PATTERN, rendered, re.MULTILINE
+        )
+        has_live_progress = re.search(TUI_PROGRESS_PATTERN, rendered, re.MULTILINE)
+        has_blocking_state = re.search(
+            rf"(?:{WAITING_PROMPT_PATTERN}|{ERROR_PATTERN})", rendered, re.MULTILINE
+        )
+        if (
+            has_completion_divider
+            and status in {TerminalStatus.IDLE, TerminalStatus.PROCESSING}
+            and not has_live_progress
+            and not has_blocking_state
+        ):
+            return TerminalStatus.COMPLETED
+        return status
 
     def extract_last_message_from_script(self, script_output: str) -> str:
         """Extract Codex's final response from terminal output.

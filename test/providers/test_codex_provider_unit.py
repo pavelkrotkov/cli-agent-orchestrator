@@ -996,6 +996,50 @@ class TestCodexProviderStatusDetection:
 
         assert status == TerminalStatus.COMPLETED
 
+    def test_get_status_completed_for_json_protocol_without_assistant_marker(self):
+        output = (
+            "› Analyze only the assigned files.\n"
+            '{"claims":[{"claim":"x","source_file":"f","locator":"l","excerpt":"e",'
+            '"stance":"supports","confidence":0.9}],"conflicts":[],"coverage_notes":[]}\n'
+            "› \n"
+            "model · ~\n"
+        )
+        provider = CodexProvider("test1234", "test-session", "window-0")
+        assert provider.get_status(output) == TerminalStatus.COMPLETED
+
+    def test_get_status_not_completed_on_echoed_prompt_schema(self):
+        # The prompt itself displays the requested schema, which ends in
+        # `"coverage_notes":[]}` and contains `{"claims":[`. Detecting a packet
+        # by shape alone fires on this echo and reports COMPLETED at 0s, before
+        # the model has produced anything. Reproduces the publication5 failure.
+        output = (
+            "› Analyze only Book 12. Extract claim-level evidence.\n"
+            "  Files: /run/sources/odyssey-book-12.html\n"
+            '  Return JSON only: {"claims":[{"claim":"...","source_file":"...",'
+            '"locator":"...","excerpt":"...","stance":"supports|qualifies|contradicts",'
+            '"confidence":0.0,"independence_group":"...","uncertainty":"..."}],'
+            '"conflicts":[],"coverage_notes":[]} Every claim needs a source file.\n'
+            "• Working (0s • esc to interrupt)\n"
+            "› \n"
+            "model · ~\n"
+        )
+        provider = CodexProvider("test1234", "test-session", "window-0")
+        assert provider.get_status(output) != TerminalStatus.COMPLETED
+
+    def test_get_status_completed_when_json_opener_scrolled_off(self):
+        # A long evidence packet pushes its own '{"claims":[' opener out of the
+        # rendered viewport. The closing "coverage_notes":[...]} shape remains,
+        # and must still be recognised as a finished response -- otherwise the
+        # step sits in IDLE until it times out despite the work being done.
+        output = (
+            '"stance":"supports","confidence":0.99,"independence_group":"g",'
+            '"uncertainty":"none"}],"conflicts":[],"coverage_notes":["scope limited"]}\n'
+            "› \n"
+            "model · ~\n"
+        )
+        provider = CodexProvider("test1234", "test-session", "window-0")
+        assert provider.get_status(output) == TerminalStatus.COMPLETED
+
     def test_get_status_idle_if_no_assistant_after_last_user(self):
         # If there is a user message but no assistant response after it, we should not
         # treat the session as COMPLETED.
@@ -1168,18 +1212,37 @@ class TestCodexRenderedScreenStatusDetection:
 
         assert provider.get_status_from_screen(screen_lines) == TerminalStatus.PROCESSING
 
-    def test_completed_turn_on_rendered_screen_is_completed(self):
+    def test_completed_long_response_without_visible_markers_is_completed(self):
         screen_lines = [
-            "› Reply with the readiness token",
-            "• CAO_CODEX_READY",
-            "",
+            '"coverage_notes":["Long JSON response completed."]}',
+            "─ Worked for 1m 42s ─────────────────────────",
             "› Improve documentation in @filename",
-            "",
-            "  gpt-5.6-terra high · /tmp/project",
+            "gpt-5.6-sol default · /tmp/project",
         ]
         provider = CodexProvider("test1234", "test-session", "window-0")
 
         assert provider.get_status_from_screen(screen_lines) == TerminalStatus.COMPLETED
+
+    def test_completed_bare_divider_without_visible_markers_is_completed(self):
+        screen_lines = [
+            '• {"claims":[{"claim":"Long response completed."}]}',
+            "─" * 160,
+            "› Improve documentation in @filename",
+            "gpt-5.6-sol default · ~",
+        ]
+        provider = CodexProvider("test1234", "test-session", "window-0")
+
+        assert provider.get_status_from_screen(screen_lines) == TerminalStatus.COMPLETED
+
+    def test_live_progress_with_worked_like_response_is_processing(self):
+        screen_lines = [
+            "• Working (1m 42s • esc to interrupt)",
+            "› Improve documentation in @filename",
+            "gpt-5.6-sol default · /tmp/project",
+        ]
+        provider = CodexProvider("test1234", "test-session", "window-0")
+
+        assert provider.get_status_from_screen(screen_lines) == TerminalStatus.PROCESSING
 
 
 class TestCodexBulletFormatStatusDetection:
