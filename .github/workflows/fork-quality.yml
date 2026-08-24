@@ -7,8 +7,9 @@ name: Quality (ruff + black)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, local/v2.4.1-fifo-fix ]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
