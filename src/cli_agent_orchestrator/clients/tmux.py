@@ -358,6 +358,11 @@ class TmuxClient:
                 "PATH",
                 "SHELL",
                 "USER",
+                # Provider-specific config homes must survive the tmux
+                # session boundary. Without this, Codex falls back to the
+                # operator's global ~/.codex/config.toml and may start
+                # unrelated MCP servers in an isolated worker.
+                "CODEX_HOME",
                 "LANG",
                 "LC_ALL",
                 "LC_CTYPE",

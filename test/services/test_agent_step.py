@@ -430,10 +430,12 @@ class TestFailureRaises:
         create, send, delete, get_output, exit_cli, get_wd, wait, status = _patch_terminal_layer(
             final_status=TerminalStatus.PROCESSING,  # never reaches a done signal
         )
-        with create, send, delete, get_output, exit_cli, wait, status:
+        with create, send, delete as m_delete, get_output, exit_cli as m_exit, wait, status:
             with pytest.raises(StepExecutionError, match="did not complete") as exc_info:
                 # timeout=0 so the poll loop hits its deadline on the first pass.
                 asyncio.run(run_agent_step("kiro_cli", "dev", "x", timeout=0))
+        m_exit.assert_called_once_with("abc12345")
+        m_delete.assert_called_once_with("abc12345", registry=None)
         # Timeout (ran long), with the live terminal carried structurally.
         assert exc_info.value.kind == "timeout"
         assert exc_info.value.terminal_id == "abc12345"
@@ -442,9 +444,11 @@ class TestFailureRaises:
         create, send, delete, get_output, exit_cli, get_wd, wait, status = _patch_terminal_layer(
             ready=False,  # readiness times out before any input
         )
-        with create, send as m_send, delete, get_output, exit_cli, wait, status:
+        with create, send as m_send, delete as m_delete, get_output, exit_cli as m_exit, wait, status:
             with pytest.raises(StepExecutionError, match="ready status") as exc_info:
                 asyncio.run(run_agent_step("kiro_cli", "dev", "x"))
+        m_exit.assert_called_once_with("abc12345")
+        m_delete.assert_called_once_with("abc12345", registry=None)
         # Fail-fast: no prompt sent if the terminal never became ready.
         m_send.assert_not_called()
         assert exc_info.value.kind == "timeout"
@@ -456,9 +460,11 @@ class TestFailureRaises:
         create, send, delete, get_output, exit_cli, get_wd, wait, status = _patch_terminal_layer(
             final_status=TerminalStatus.ERROR,
         )
-        with create, send, delete, get_output, exit_cli, wait, status:
+        with create, send, delete as m_delete, get_output, exit_cli as m_exit, wait, status:
             with pytest.raises(StepExecutionError, match="ERROR status") as exc_info:
                 asyncio.run(run_agent_step("kiro_cli", "dev", "x"))
+        m_exit.assert_called_once_with("abc12345")
+        m_delete.assert_called_once_with("abc12345", registry=None)
         assert exc_info.value.kind == "error"
         assert exc_info.value.terminal_id == "abc12345"
 
@@ -554,6 +560,27 @@ class TestIdleCompletionSignal:
         assert result.status == TerminalStatus.COMPLETED
         assert result.last_message == "the answer"
         m_out.assert_called_once_with("abc12345", OutputMode.LAST)
+
+    def test_codex_transient_idle_does_not_complete(self):
+        from cli_agent_orchestrator.services.agent_step import _wait_for_completion
+
+        async def _run():
+            statuses = iter([
+                TerminalStatus.PROCESSING,
+                TerminalStatus.IDLE,
+                TerminalStatus.IDLE,
+                TerminalStatus.IDLE,
+            ])
+            with patch(
+                f"{_MODULE}.status_monitor.get_status",
+                side_effect=lambda _terminal: next(statuses, TerminalStatus.IDLE),
+            ), patch(f"{_MODULE}._COMPLETION_POLL_INTERVAL", 0):
+                await _wait_for_completion(
+                    "codex-term", timeout=0.05, accept_idle=False
+                )
+
+        with pytest.raises(StepExecutionError, match="did not complete"):
+            asyncio.run(_run())
 
     def test_completed_marker_still_resolves_immediately(self):
         """A COMPLETED marker resolves on the first poll (no observed-working

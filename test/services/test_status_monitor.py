@@ -30,6 +30,27 @@ class TestGetStatusTmux:
 
         assert sm.get_status("t1") == TerminalStatus.PROCESSING
 
+    @patch("cli_agent_orchestrator.services.status_monitor.provider_manager")
+    @patch("cli_agent_orchestrator.backends.registry.get_backend")
+    def test_processing_refresh_uses_rendered_pane_for_screen_provider(
+        self, mock_get_backend, mock_pm
+    ):
+        mock_get_backend.return_value = _backend(event_inbox=False)
+        provider = MagicMock()
+        provider.supports_screen_detection = True
+        mock_pm.get_provider.return_value = provider
+
+        sm = StatusMonitor()
+        sm._last_status["t1"] = TerminalStatus.PROCESSING
+        sm._buffers["t1"] = "raw fifo output"
+        with patch.object(
+            sm, "_detect_from_live_pane", return_value=TerminalStatus.COMPLETED
+        ) as live_detect, patch.object(sm, "_detect_status") as raw_detect:
+            assert sm.get_status("t1") == TerminalStatus.COMPLETED
+
+        live_detect.assert_called_once_with("t1")
+        raw_detect.assert_not_called()
+
     @patch("cli_agent_orchestrator.backends.registry.get_backend")
     def test_unknown_when_never_seen(self, mock_get_backend):
         mock_get_backend.return_value = _backend(event_inbox=False)

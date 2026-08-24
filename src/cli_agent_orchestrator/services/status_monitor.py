@@ -638,7 +638,13 @@ class StatusMonitor:
                 buffer = ""
 
         if cached == TerminalStatus.PROCESSING and buffer:
-            fresh = self._detect_status(terminal_id, buffer)
+            provider = provider_manager.get_provider(terminal_id)
+            if provider is not None and getattr(provider, "supports_screen_detection", False):
+                fresh = self._detect_from_live_pane(terminal_id)
+            else:
+                fresh = self._detect_status(terminal_id, buffer)
+            if fresh is None:
+                fresh = TerminalStatus.UNKNOWN
             logger.debug(
                 f"get_status [{terminal_id}]: cached=PROCESSING, "
                 f"fresh={fresh.value}, buffer_len={len(buffer)}"

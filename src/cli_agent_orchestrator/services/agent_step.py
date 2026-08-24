@@ -144,6 +144,8 @@ async def _wait_for_completion(
     terminal_id: str,
     timeout: float,
     cancel_event: Optional["asyncio.Event"] = None,
+    *,
+    accept_idle: bool = True,
 ) -> None:
     """Wait for a post-input step to settle, polling ``status_monitor`` (issue #409).
 
@@ -191,10 +193,10 @@ async def _wait_for_completion(
         if current == TerminalStatus.COMPLETED:
             return
         if current == TerminalStatus.IDLE:
-            # Post-input IDLE only counts once the agent has actually started
-            # working — otherwise the idle-before-processing window right after
-            # the send would settle immediately with empty/partial output.
-            if observed_working:
+            # Some providers legitimately finish at a stable idle prompt. Codex
+            # must use its definitive COMPLETED marker because transient IDLE
+            # redraws can occur while a turn is still running.
+            if accept_idle and observed_working:
                 consecutive_idle += 1
                 if consecutive_idle >= _IDLE_STABLE_POLLS:
                     logger.info(
@@ -444,9 +446,10 @@ async def run_agent_step(
         # confirm a ready status before sending input (same guard handoff uses).
         ready = await wait_until_status(terminal_id, _READY_STATES, timeout=ready_timeout)
         if not ready:
-            # Surface the live terminal so it can be inspected/cleaned up, then
-            # fail fast. We do NOT auto-delete here: leaving the terminal lets
-            # the caller decide (handoff surfaces terminal_id on failure).
+            # Surface the live terminal in the exception, but reclaim it first:
+            # the step owns terminals it created under teardown=True.
+            if teardown:
+                await _best_effort_teardown(terminal_id, registry)
             raise StepExecutionError(
                 f"terminal {terminal_id} did not reach a ready status within " f"{ready_timeout}s",
                 kind="timeout",
@@ -462,7 +465,12 @@ async def run_agent_step(
     # key sends); run it off the event loop so a slow tmux call cannot freeze
     # the whole server for other requests (same hazard as issue #382, which was
     # only fixed for DELETE /sessions). Any failure raises and propagates.
-    await asyncio.to_thread(terminal_service.send_input, terminal_id, prompt)
+    try:
+        await asyncio.to_thread(terminal_service.send_input, terminal_id, prompt)
+    except Exception:
+        if teardown and created_here:
+            await _best_effort_teardown(terminal_id, registry)
+        raise
 
     # Wait for completion — IN-PROCESS poll of status_monitor (NOT the
     # HTTP-polling wait_until_terminal_status, which would reintroduce the
@@ -471,12 +479,14 @@ async def run_agent_step(
     # ``cancel_event`` (issue #409b). Raises StepExecutionError on timeout/ERROR,
     # or StepCancelledError if cancellation fires mid-wait.
     try:
-        await _wait_for_completion(terminal_id, timeout, cancel_event)
-    except StepCancelledError:
-        # A cancellation is NOT a run-failure. Tear down a terminal this call
-        # created (best-effort — never let cleanup mask the cancellation), then
-        # re-raise so the engine converges the run to CANCELLED without retrying.
-        if created_here:
+        await _wait_for_completion(
+            terminal_id,
+            timeout,
+            cancel_event,
+            accept_idle=(provider != ProviderType.CODEX.value),
+        )
+    except (StepExecutionError, StepCancelledError):
+        if teardown and created_here:
             await _best_effort_teardown(terminal_id, registry)
         raise
 
@@ -485,9 +495,14 @@ async def run_agent_step(
     # provider's extract_last_message_from_script under the hood). This does a
     # blocking tmux capture-pane plus regex extraction over the scrollback —
     # potentially seconds for a large transcript — so run it off the loop.
-    last_message = await asyncio.to_thread(
-        terminal_service.get_output, terminal_id, OutputMode.LAST
-    )
+    try:
+        last_message = await asyncio.to_thread(
+            terminal_service.get_output, terminal_id, OutputMode.LAST
+        )
+    except Exception:
+        if teardown and created_here:
+            await _best_effort_teardown(terminal_id, registry)
+        raise
 
     result = AgentStepResult(
         terminal_id=terminal_id,
