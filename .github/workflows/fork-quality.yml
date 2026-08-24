@@ -39,7 +39,21 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/ruff-action@v3
         with:
-          args: check --select E4,E7,E9,F,I,B ${{ env.GATED_FILES }}
+          args: check --select E4,E7,E9,F,I,B
+          src: "./src"
+      - name: Ruff gate on lifecycle-fix files
+        # ruff-action's `args` is split naively, which breaks long file lists;
+        # run the explicit gate as a plain command instead.
+        run: |
+          ruff check --select E4,E7,E9,F,I,B \
+            src/cli_agent_orchestrator/providers/codex.py \
+            src/cli_agent_orchestrator/services/agent_step.py \
+            src/cli_agent_orchestrator/services/status_monitor.py \
+            src/cli_agent_orchestrator/clients/tmux.py \
+            test/providers/test_codex_provider_unit.py \
+            test/services/test_agent_step.py \
+            test/services/test_status_monitor.py \
+            test/clients/test_tmux_client.py
 
   ruff-legacy-report:
     name: Ruff (legacy codebase, report-only)
@@ -51,7 +65,8 @@ jobs:
       - uses: astral-sh/ruff-action@v3
         with:
           # Report the legacy debt without failing the build.
-          args: check --select E4,E7,E9,F,I,B --exit-zero --statistics .
+          args: check --select E4,E7,E9,F,I,B --exit-zero --statistics
+          src: "."
 
   black:
     name: Black (upstream config)
@@ -64,7 +79,6 @@ jobs:
         with:
           python-version: "3.10"
       - run: pipx run black==25.1.0 --check src/ test/
-
   actionlint:
     name: Actions Lint
     runs-on: ubuntu-latest
