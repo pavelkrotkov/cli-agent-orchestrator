@@ -576,7 +576,13 @@ class StatusMonitor:
             return None
 
         try:
-            content = get_backend().get_history(session_name, window_name, strip_escapes=True)
+            # Viewport-only capture: screen detectors are calibrated on a
+            # composited CURRENT screen, so a completion marker from a previous
+            # turn sitting in scrollback must not be visible here (a 200-line
+            # history capture would latch a false COMPLETED mid-turn).
+            content = get_backend().get_history(
+                session_name, window_name, strip_escapes=True, viewport_only=True
+            )
         except Exception as e:
             logger.debug(f"live-pane detect [{terminal_id}]: capture-pane failed: {e}")
             return None
@@ -589,6 +595,16 @@ class StatusMonitor:
                 # capture-pane output IS a composited viewport — exactly what
                 # get_status_from_screen expects (escape-free rows).
                 return provider.get_status_from_screen(content.split("\n"))
+            if not getattr(provider, "supports_direct_status_probe", False):
+                # Provider contract (providers/base.py): rendered capture-pane
+                # probes are only safe for providers that opted in. Probing
+                # others (kiro_cli etc.) can upgrade UNKNOWN to a sticky
+                # IDLE/COMPLETED while the CLI is still booting.
+                logger.debug(
+                    f"live-pane detect [{terminal_id}]: provider {type(provider).__name__} "
+                    "does not opt in to direct status probes; skipping"
+                )
+                return None
             return provider.get_status(content)
         except Exception as e:
             logger.debug(f"live-pane detect [{terminal_id}]: detection failed: {e}")

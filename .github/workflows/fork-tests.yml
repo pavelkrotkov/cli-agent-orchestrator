@@ -52,5 +52,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
-      - run: |
-          uvx pip-audit --skip-editable
+      # Audit the PROJECT environment from uv.lock, not the ephemeral uvx tool
+      # env (pip-audit with no target audits the environment it runs in).
+      - run: uv export --frozen --no-dev --format requirements-txt --output-file /tmp/requirements.txt
+      - run: uvx pip-audit -r /tmp/requirements.txt

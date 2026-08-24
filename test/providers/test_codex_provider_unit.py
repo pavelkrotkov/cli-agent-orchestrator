@@ -997,8 +997,13 @@ class TestCodexProviderStatusDetection:
         assert status == TerminalStatus.COMPLETED
 
     def test_get_status_completed_for_json_protocol_without_assistant_marker(self):
+        # JSON packet directly after the queued input is only trusted as
+        # COMPLETED when separated from the echo by a Codex completion divider
+        # (response-provenance rule; see the echo regression tests below).
         output = (
             "› Analyze only the assigned files.\n"
+            '  Return JSON only: {"claims":[{"stance":"supports"}]}\n'
+            "────────────\n"
             '{"claims":[{"claim":"x","source_file":"f","locator":"l","excerpt":"e",'
             '"stance":"supports","confidence":0.9}],"conflicts":[],"coverage_notes":[]}\n'
             "› \n"
@@ -1034,6 +1039,40 @@ class TestCodexProviderStatusDetection:
         output = (
             '"stance":"supports","confidence":0.99,"independence_group":"g",'
             '"uncertainty":"none"}],"conflicts":[],"coverage_notes":["scope limited"]}\n'
+            "› \n"
+            "model · ~\n"
+        )
+        provider = CodexProvider("test1234", "test-session", "window-0")
+        assert provider.get_status(output) == TerminalStatus.COMPLETED
+
+    def test_get_status_not_completed_on_echo_with_concrete_stance_example(self):
+        # Codex review P1: a prompt that QUOTES a concrete stance value
+        # ("stance":"supports") inside its schema example used to satisfy both
+        # the opener and the concrete-stance check, classifying the echoed
+        # prompt as COMPLETED before any model output. JSON shapes alone are
+        # not response provenance — require a completion divider or assistant
+        # marker too.
+        output = (
+            "› Analyze only Book 12. Extract claim-level evidence.\n"
+            '  Return JSON only: {"claims":[{"claim":"...","source_file":"...",'
+            '"locator":"...","excerpt":"...","stance":"supports","confidence":0.9,'
+            '"independence_group":"g","uncertainty":"low"}],"conflicts":[],'
+            '"coverage_notes":[]} Every claim needs an exact excerpt.\n'
+            "› \n"
+            "model · ~\n"
+        )
+        provider = CodexProvider("test1234", "test-session", "window-0")
+        assert provider.get_status(output) != TerminalStatus.COMPLETED
+
+    def test_get_status_completed_on_tail_packet_after_completion_divider(self):
+        # The legit path this gate must keep working: opener scrolled off, the
+        # reply separated from the queued input by a Codex completion divider.
+        output = (
+            "› Analyze only Book 12.\n"
+            '  Return JSON only: {"claims":[{"stance":"supports|qualifies"}]}\n'
+            "────────────────────────────\n"
+            '"stance":"supports","confidence":0.99,"uncertainty":"none"}],'
+            '"conflicts":[],"coverage_notes":["scope limited"]}\n'
             "› \n"
             "model · ~\n"
         )

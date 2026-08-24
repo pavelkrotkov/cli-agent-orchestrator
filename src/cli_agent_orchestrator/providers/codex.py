@@ -913,15 +913,34 @@ class CodexProvider(BaseProvider):
             # the model has actually replied would trip COMPLETED prematurely.
             if last_user is not None:
                 after_user = clean_output[last_user.start() :]
-                # Require a concrete stance, not just the schema shape: the
-                # echoed prompt contains `{"claims":[` and the alternation
-                # "supports|qualifies|contradicts", so matching the opener
-                # alone reports COMPLETED before the model has replied.
-                if re.search(CODEX_JSON_RESPONSE_PATTERN, after_user, re.DOTALL) and re.search(
-                    CODEX_REAL_STANCE_PATTERN, after_user
+                # Evidence-packet detection requires RESPONSE PROVENANCE: the
+                # echoed prompt itself can contain `{"claims":[` plus a concrete
+                # `"stance":"supports"` example (research-fabric prompts do), and
+                # there is a real post-submit frame where the echo is on screen
+                # before the progress spinner is drawn. So the JSON shapes alone
+                # are only trusted when they appear AFTER a completion divider
+                # ("Worked for …" / em-dash rule) that separates the model's
+                # reply from the queued input — or together with an assistant
+                # marker.
+                json_shape = re.search(CODEX_JSON_RESPONSE_PATTERN, after_user, re.DOTALL)
+                stance = re.search(CODEX_REAL_STANCE_PATTERN, after_user)
+                if json_shape and stance:
+                    divider = re.search(
+                        CODEX_COMPLETION_PATTERN,
+                        clean_output[last_user.end() :],
+                        re.MULTILINE,
+                    )
+                    assistant = _find_assistant_marker(after_user) is not None
+                    if divider is not None or assistant:
+                        return TerminalStatus.COMPLETED
+                if _has_completed_packet(after_user) and (
+                    _find_assistant_marker(after_user) is not None
+                    or re.search(
+                        CODEX_COMPLETION_PATTERN,
+                        clean_output[last_user.end() :],
+                        re.MULTILINE,
+                    )
                 ):
-                    return TerminalStatus.COMPLETED
-                if _has_completed_packet(after_user):
                     return TerminalStatus.COMPLETED
                 if _find_assistant_marker(after_user) is not None:
                     return TerminalStatus.COMPLETED
